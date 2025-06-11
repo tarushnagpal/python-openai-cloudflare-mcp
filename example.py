@@ -3,6 +3,7 @@ import os
 
 from agents import Agent, Runner
 from agents.mcp import MCPServerSse
+from openai import OpenAI
 
 async def main():
     async with MCPServerSse(
@@ -34,7 +35,84 @@ async def main():
         
         # You can also still use the agent if needed
         result = await Runner.run(starting_agent=agent, input="Call the accounts_list tool with an empty object to list my accounts.")
-        print(f"Agent result: {result.final_output}")
+        print(f"Agent result: {result.final_output}", end='\n\n')
+
+        client = OpenAI()
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "user", "content": "Call the accounts_list tool with an empty object to list my accounts."}
+                ],
+                # This will fail because the tools list does not conform to openai format
+                tools=list_tools
+            )
+            print(f"OpenAI response: {response}")
+        except Exception as e:
+            print(f"Expected Error: {e}", end='\n\n')
+        
+        # How users would then try to format it
+        formatted_tools = []
+        for tool in list_tools:
+            formatted_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    # This would fail because accounts_list has an inputSchema like
+                    # { type: 'object' } instead of just being null itself
+                    "parameters": tool.inputSchema
+                }
+            })
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "user", "content": "Call the accounts_list tool with an empty object to list my accounts."}
+                ],
+                # This will also fail
+                tools=formatted_tools
+            )
+            print(f"OpenAI response: {response}")
+        except Exception as e:
+            print(f"Expected Error: {e}", end='\n\n')
+
+        # How users should format it
+        formatted_tools = []
+        for tool in list_tools:
+            # If properties is empty then don't send the parameters themselves
+            if "properties" not in tool.inputSchema:
+                formatted_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description
+                    }
+                })
+            else:
+                formatted_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.inputSchema
+                    }
+                })
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "user", "content": "Call the accounts_list tool with an empty object to list my accounts."}
+                ],
+                # This will now pass
+                tools=formatted_tools
+            )
+            print(f"Working OpenAI response: {response}")
+        except Exception as e:
+            print(f"Error: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
